@@ -1,0 +1,338 @@
+/* Landing.css
+   Tailwind v4 entry + theme tokens + custom effects for Landing.jsx.
+   If your project already has `@import "tailwindcss";` in index.css, delete
+   that line below and keep the @theme block (the tokens are what was missing). */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-abyss: #06151f;
+  --color-deep: #0a2433;
+  --color-signal: #ff6b3d;
+  --color-foam: #eaf6f4;
+  --color-seaglass: #7fd6c8;
+  --color-brine: #93b3ba;
+  --color-sand: #f3eedf;
+  --color-paper: #fbf8ef;
+  --color-ink: #0b2533;
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  background: #06151f;
+}
+.mx-landing section[id] {
+  scroll-margin-top: 56px;
+}
+
+.mx-landing {
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+}
+.mx-landing :focus-visible {
+  outline: 2px solid #ff6b3d;
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* ---------- Scroll reveal ---------- */
+[data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 28px, 0);
+  transition:
+    opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- Split text ---------- */
+.mx-split {
+  display: inline;
+}
+.mx-word {
+  display: inline-block;
+  white-space: nowrap;
+  perspective: 900px;
+}
+.mx-char {
+  display: inline-block;
+  opacity: 0;
+  transform-style: preserve-3d;
+  will-change: transform, opacity;
+  animation: mx-char-in 1.15s cubic-bezier(0.2, 0.8, 0.2, 1) var(--d, 0s) both;
+}
+.mx-glyph {
+  display: inline-block;
+}
+/* Closing headline waits until it is on screen */
+[data-reveal]:not(.is-visible) .mx-char {
+  animation-play-state: paused;
+}
+@keyframes mx-char-in {
+  from {
+    opacity: 0;
+    transform: translate3d(
+        calc(var(--dx, 0) * 1px),
+        calc(var(--dy, 28) * 1px),
+        calc(var(--dz, 0) * 1px)
+      )
+      rotate(calc(var(--rz, 0) * 1deg));
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+/* ---------- Hero ---------- */
+.mx-rise {
+  opacity: 0;
+  animation: mx-rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) var(--rd, 0s) both;
+}
+@keyframes mx-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.mx-pulse {
+  animation: mx-pulse 2s ease-out infinite;
+}
+@keyframes mx-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 61, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgba(255, 107, 61, 0);
+  }
+}
+.mx-zoom {
+  transform: scale(calc(1.04 + var(--p, 0) * 0.14));
+  transform-origin: 60% 50%;
+  will-change: transform;
+}
+.mx-shade {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(5, 20, 30, 0.82) 0%,
+      rgba(5, 20, 30, 0.35) 55%,
+      rgba(5, 20, 30, 0.1) 100%
+    ),
+    linear-gradient(0deg, rgba(5, 20, 30, 0.7) 0%, transparent 35%);
+}
+.mx-dim {
+  opacity: var(--dim, 0.05);
+}
+.mx-grain {
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.mx-hero-inner {
+  opacity: calc(1 - var(--exit, 0) * 1.4);
+  transform: translate3d(0, calc(var(--exit, 0) * -48px), 0);
+  will-change: transform, opacity;
+}
+.mx-beat-card {
+  opacity: var(--b, 0);
+  transform: translate3d(0, calc((1 - var(--b, 0)) * 36px), 0)
+    rotateX(calc((1 - var(--b, 0)) * -10deg));
+  transform-origin: 50% 100%;
+  visibility: visible;
+  will-change: transform, opacity;
+}
+.mx-meta-fade,
+.mx-cue-fade {
+  opacity: calc(1 - var(--exit, 0) * 2);
+}
+.mx-cue-line {
+  background: linear-gradient(#fff, transparent);
+  animation: mx-cue 1.8s ease-in-out infinite;
+}
+@keyframes mx-cue {
+  0% {
+    transform: scaleY(0);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0;
+  }
+}
+
+/* ---------- Marquee ---------- */
+.mx-marquee-track {
+  animation: mx-marquee 42s linear infinite;
+}
+.mx-marquee-track:hover {
+  animation-play-state: paused;
+}
+.mx-port-name::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin: 0 2.2rem;
+  border-radius: 50%;
+  background: #7fd6c8;
+}
+@keyframes mx-marquee {
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* ---------- Feature cards ---------- */
+.mx-feature {
+  transform: perspective(900px) rotateX(var(--rx, 0deg))
+    rotateY(var(--ry, 0deg));
+  transition:
+    transform 0.25s ease-out,
+    border-color 0.3s;
+  transform-style: preserve-3d;
+}
+.mx-feature::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+  background: radial-gradient(
+    260px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(127, 214, 200, 0.16),
+    transparent 70%
+  );
+}
+.mx-feature:hover::before {
+  opacity: 1;
+}
+
+/* ---------- Workspace ---------- */
+.mx-panel {
+  animation: mx-panel 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes mx-panel {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- Journey ---------- */
+.mx-step-card {
+  opacity: 0.45;
+  transform: translate3d(-28px, 0, 0) rotateY(6deg);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 0.5s,
+    background-color 0.5s;
+}
+.mx-step-card.is-right {
+  transform: translate3d(28px, 0, 0) rotateY(-6deg);
+}
+.mx-step-card.is-reached {
+  opacity: 1;
+  transform: none;
+  border-color: rgba(127, 214, 200, 0.35);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+@media (max-width: 767px) {
+  .mx-step-card,
+  .mx-step-card.is-right {
+    transform: translate3d(0, 16px, 0);
+  }
+  .mx-step-card.is-reached {
+    transform: none;
+  }
+}
+
+/* ---------- Testimonials ---------- */
+.mx-quote {
+  transition:
+    transform 0.4s cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 0.3s;
+}
+.mx-quote:hover {
+  transform: translateY(-6px);
+  border-color: rgba(127, 214, 200, 0.35);
+}
+
+/* ---------- FAQ ---------- */
+.mx-summary {
+  cursor: pointer;
+}
+.mx-summary::-webkit-details-marker {
+  display: none;
+}
+.mx-summary::after {
+  content: "+";
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  font-size: 1.2rem;
+  line-height: 1;
+  transition:
+    transform 0.3s,
+    background-color 0.3s,
+    color 0.3s;
+}
+details[open] > .mx-summary::after {
+  content: "\2212";
+  transform: rotate(180deg);
+  background: #ff6b3d;
+  border-color: #ff6b3d;
+  color: #08202f;
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .mx-landing {
+    scroll-behavior: auto;
+  }
+  .mx-char,
+  .mx-rise,
+  .mx-panel {
+    animation: none;
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+  .mx-marquee-track,
+  .mx-pulse,
+  .mx-cue-line {
+    animation: none;
+  }
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .mx-step-card {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
