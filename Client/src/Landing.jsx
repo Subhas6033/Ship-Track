@@ -1963,7 +1963,7 @@ function Footer() {
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
-export default function Landing({ onEnter }) {
+export default function Landing({ onEnter, onLogin }) {
   const rootRef = useRef(null);
 
   useEffect(() => {
@@ -1988,7 +1988,7 @@ export default function Landing({ onEnter }) {
       ref={rootRef}
       id="top"
     >
-      <Navbar onEnter={onEnter} />
+      <Navbar onEnter={onEnter} onLogin={onLogin} />
       <main>
         <Hero onEnter={onEnter} />
         <Marquee />

@@ -17,7 +17,7 @@ function scrollToId(id) {
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-export default function Navbar({ onEnter }) {
+export default function Navbar({ onEnter, onLogin }) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("platform");
@@ -126,6 +126,12 @@ export default function Navbar({ onEnter }) {
 
         <div className="flex items-center gap-3">
           <button
+            onClick={onLogin}
+            className="hidden rounded-full border border-white/25 px-5 py-2.5 text-sm font-bold text-foam transition hover:bg-white/10 sm:inline-flex"
+          >
+            Login
+          </button>
+          <button
             onClick={onEnter}
             className="hidden items-center gap-2 rounded-full bg-signal px-5 py-2.5 text-sm font-bold text-abyss transition hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-12px_rgba(255,107,61,0.9)] sm:inline-flex"
           >
@@ -185,6 +191,15 @@ export default function Navbar({ onEnter }) {
               </li>
             ))}
             <li className="pt-2">
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  onLogin();
+                }}
+                className="mb-2 w-full rounded-full border border-white/25 px-5 py-3.5 font-bold text-foam"
+              >
+                Login
+              </button>
               <button
                 onClick={() => {
                   setOpen(false);

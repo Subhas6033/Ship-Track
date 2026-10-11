@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import Landing from "./Landing.jsx";
+import LoginPage from "./LoginPage.jsx";
+import AdminPage from "./pages/AdminPage.jsx";
 import "./App.css";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 
 const money = (n) =>
   new Intl.NumberFormat("en-US", {
@@ -10,6 +13,13 @@ const money = (n) =>
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(n || 0);
+
+const moneyInCurrency = (amount, currency) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(amount || 0);
 
 const initials = (name = "") =>
   name
@@ -26,6 +36,7 @@ const nav = [
   { id: "shipments", label: "Shipments", icon: "◉" },
   { id: "invoices", label: "Invoice checker", icon: "▤" },
   { id: "inbox", label: "Email updates", icon: "✉" },
+  { id: "admin", label: "Admin data", icon: "⚙" },
 ];
 
 const AVATAR_COLORS = ["#dff5ef", "#eaf0ff", "#fff0df", "#f2eaff", "#ffe9e7"];
@@ -49,10 +60,26 @@ function todayLabel() {
 }
 
 async function request(path, options = {}) {
-  const r = await fetch(`${API}${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-  });
+  const url = `${API}${path}`;
+  let r;
+  try {
+    r = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(localStorage.getItem("meridian_session")
+          ? {
+              Authorization: `Bearer ${localStorage.getItem("meridian_session")}`,
+            }
+          : {}),
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error(
+      `Could not reach the API at ${url}. Check that the server is running and VITE_API_URL is correct.`,
+    );
+  }
   let data = null;
   try {
     data = await r.json();
@@ -69,8 +96,11 @@ function Badge({ children }) {
 }
 
 function App() {
-  const [page, setPage] = useState("landing"),
-    [rates, setRates] = useState([]),
+  const location = useLocation();
+  const navigate = useNavigate();
+  const routePage = location.pathname.match(/^\/workspace\/([^/]+)\/?$/)?.[1];
+  const page = routePage || "overview";
+  const [rates, setRates] = useState([]),
     [shipments, setShipments] = useState([]),
     [invoices, setInvoices] = useState([]),
     [routes, setRoutes] = useState({
@@ -80,6 +110,13 @@ function App() {
     }),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
+  const [mailConfigured, setMailConfigured] = useState(false);
+  const [authToken, setAuthToken] = useState(
+    () => localStorage.getItem("meridian_session") || "",
+  );
+  const [authUser, setAuthUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [greetingText, setGreetingText] = useState(greeting);
   const [filters, setFilters] = useState({
       origin: "",
       destination: "",
@@ -91,21 +128,34 @@ function App() {
     [parsed, setParsed] = useState(null),
     [busy, setBusy] = useState(false),
     [toast, setToast] = useState("");
+  const [shipmentForm, setShipmentForm] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({
+    shipment_id: "",
+    amount: "",
+  });
+  const [invoiceCurrency, setInvoiceCurrency] = useState("USD");
+  const [usdToInr, setUsdToInr] = useState(null);
+  const [exchangeRateDate, setExchangeRateDate] = useState("");
+  const [exchangeRateError, setExchangeRateError] = useState("");
+  const [mailDraft, setMailDraft] = useState({ to: "", subject: "", text: "" });
+  const [sendingMail, setSendingMail] = useState(false);
 
   async function refresh() {
     setLoading(true);
     setError("");
     try {
-      const [r, s, i, rt] = await Promise.all([
+      const [r, s, i, rt, mail] = await Promise.all([
         request("/rates"),
         request("/shipments"),
         request("/invoices"),
         request("/routes"),
+        request("/emails/status"),
       ]);
       setRates(r);
       setShipments(s);
       setInvoices(i);
       setRoutes(rt);
+      setMailConfigured(mail.configured);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -114,8 +164,24 @@ function App() {
   }
 
   useEffect(() => {
-    refresh();
+    if (!authToken) {
+      setAuthReady(true);
+      return;
+    }
+    request("/auth/me")
+      .then((data) => setAuthUser(data.user))
+      .catch(() => {
+        localStorage.removeItem("meridian_session");
+        setAuthToken("");
+        setAuthUser(null);
+      })
+      .finally(() => setAuthReady(true));
   }, []);
+
+  useEffect(() => {
+    if (authReady && authToken) refresh();
+    else if (authReady) setLoading(false);
+  }, [authReady, authToken]);
 
   useEffect(() => {
     if (!toast) return;
@@ -123,10 +189,65 @@ function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setGreetingText(greeting()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (page !== "invoices") return;
+    const controller = new AbortController();
+    setExchangeRateError("");
+    fetch("https://api.frankfurter.dev/v2/rate/USD/INR", {
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok)
+          throw new Error("Exchange rate service is unavailable.");
+        return response.json();
+      })
+      .then((data) => {
+        if (!Number.isFinite(data.rate) || data.rate <= 0)
+          throw new Error("Could not read the latest USD/INR rate.");
+        setUsdToInr(data.rate);
+        setExchangeRateDate(data.date || "");
+      })
+      .catch((error) => {
+        if (error.name !== "AbortError")
+          setExchangeRateError(
+            error.message || "Could not load exchange rate.",
+          );
+      });
+    return () => controller.abort();
+  }, [page]);
+
   // Scroll back to the top whenever the page changes
   useEffect(() => {
     window.scrollTo({ top: 0 });
-  }, [page]);
+  }, [location.pathname]);
+
+  function goToPage(id) {
+    navigate(`/workspace/${id}`);
+  }
+
+  async function authenticateUser(mode, credentials) {
+    const result = await request(`/auth/${mode}`, {
+      method: "POST",
+      body: JSON.stringify(credentials),
+    });
+    localStorage.setItem("meridian_session", result.token);
+    setAuthToken(result.token);
+    setAuthUser(result.user);
+    navigate("/workspace/overview", { replace: true });
+  }
+
+  function logout() {
+    localStorage.removeItem("meridian_session");
+    setAuthToken("");
+    setAuthUser(null);
+    setError("");
+    navigate("/", { replace: true });
+  }
 
   const filteredRates = useMemo(
     () =>
@@ -173,10 +294,75 @@ function App() {
 
   async function loadSample() {
     try {
-      setEmailText(await request("/emails/sample", { headers: {} }));
+      const token = localStorage.getItem("meridian_session");
+      const response = await fetch(`${API}/emails/sample`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        let details;
+        try {
+          details = await response.json();
+        } catch {
+          /* response may be plain text */
+        }
+        throw new Error(details?.error || "Could not load the sample inbox.");
+      }
+      setEmailText(await response.text());
     } catch (e) {
       setToast(e.message);
     }
+  }
+
+  async function loadEmailFile(file) {
+    if (!file) return;
+    try {
+      setEmailText(await file.text());
+      setParsed(null);
+      setToast(`${file.name} loaded`);
+    } catch {
+      setToast("Could not read that email file.");
+    }
+  }
+
+  async function sendMail(event) {
+    event.preventDefault();
+    setSendingMail(true);
+    try {
+      const result = await request("/emails/send", {
+        method: "POST",
+        body: JSON.stringify(mailDraft),
+      });
+      setToast(`Email sent to ${result.to}`);
+      setMailDraft({ to: "", subject: "", text: "" });
+    } catch (e) {
+      setToast(e.message);
+    } finally {
+      setSendingMail(false);
+    }
+  }
+
+  function prepareUpdateEmail() {
+    const updated = (parsed?.results || []).filter(
+      (item) => item.status === "Updated",
+    );
+    if (!updated.length) {
+      setToast("There are no applied updates to email.");
+      return;
+    }
+    const summary = updated.map((item) => `• ${item.detail}`).join("\n");
+    setMailDraft((draft) => ({
+      ...draft,
+      subject: `Ocean freight updates: ${updated.length} applied`,
+      text: `The following carrier email updates were applied to the freight workspace:\n\n${summary}\n\nSkipped emails: ${parsed.skipped}.`,
+    }));
+    setToast("Update summary prepared. Enter a recipient and send it below.");
+    window.setTimeout(
+      () =>
+        document
+          .getElementById("send-update-email")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      0,
+    );
   }
 
   async function parseEmails() {
@@ -198,10 +384,126 @@ function App() {
     }
   }
 
-  const title = nav.find((n) => n.id === page)?.label || "Overview";
+  async function importRates(file) {
+    if (!file) return;
+    try {
+      const csv = await file.text();
+      const result = await request("/rates/import", {
+        method: "POST",
+        body: JSON.stringify({ csv }),
+      });
+      await refresh();
+      setToast(`${result.imported} rates imported`);
+    } catch (e) {
+      setToast(e.message);
+    }
+  }
 
-  if (page === "landing")
-    return <Landing onEnter={() => setPage("overview")} />;
+  async function createShipment(event) {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      const result = await request("/shipments", {
+        method: "POST",
+        body: JSON.stringify(values),
+      });
+      setShipmentForm(false);
+      await refresh();
+      setToast(`${result.shipment_id} added`);
+    } catch (e) {
+      setToast(e.message);
+    }
+  }
+
+  async function saveInvoice(shipmentId, amount) {
+    try {
+      const result = await request(
+        `/invoices/${encodeURIComponent(shipmentId)}`,
+        { method: "PATCH", body: JSON.stringify({ amount }) },
+      );
+      await refresh();
+      const variance =
+        invoiceCurrency === "INR" && usdToInr
+          ? result.variance * usdToInr
+          : result.variance;
+      setToast(
+        result.flagged
+          ? `Overcharged by ${moneyInCurrency(variance, invoiceCurrency)}`
+          : "Invoice amount matches the contracted rate",
+      );
+    } catch (e) {
+      setToast(e.message);
+    }
+  }
+
+  async function importInvoices(file) {
+    if (!file) return;
+    try {
+      const lines = (await file.text()).trim().split(/\r?\n/);
+      const headers = lines
+        .shift()
+        .split(",")
+        .map((h) => h.trim().toLowerCase());
+      const idIndex = headers.indexOf("shipment_id");
+      const amountIndex = headers.findIndex((h) =>
+        ["invoice_amount_usd", "amount"].includes(h),
+      );
+      if (idIndex < 0 || amountIndex < 0)
+        throw new Error(
+          "CSV needs shipment_id and invoice_amount_usd (or amount) columns.",
+        );
+      let count = 0;
+      for (const line of lines) {
+        const columns = line.split(",");
+        if (columns[idIndex] && Number(columns[amountIndex]) > 0) {
+          await request(
+            `/invoices/${encodeURIComponent(columns[idIndex].trim())}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({ amount: Number(columns[amountIndex]) }),
+            },
+          );
+          count++;
+        }
+      }
+      await refresh();
+      setToast(`${count} invoice amounts imported`);
+    } catch (e) {
+      setToast(e.message);
+    }
+  }
+
+  const title = nav.find((n) => n.id === page)?.label || "Overview";
+  const userName = (authUser?.name || authUser?.email?.split("@")[0] || "User")
+    .replace(/[._-]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const firstName = userName.split(/\s+/)[0];
+
+  if (!authReady)
+    return <div className="auth-loading">Checking your session…</div>;
+  if (!authToken || !authUser) {
+    if (location.pathname === "/login")
+      return (
+        <LoginPage
+          onAuthenticate={authenticateUser}
+          onBack={() => navigate("/")}
+        />
+      );
+    if (location.pathname !== "/") return <Navigate to="/" replace />;
+    return (
+      <Landing
+        onEnter={() => navigate("/login")}
+        onLogin={() => navigate("/login")}
+      />
+    );
+  }
+  if (!routePage) return <Navigate to="/workspace/overview" replace />;
+  if (
+    !nav.some((item) => item.id === routePage) ||
+    (routePage === "admin" && authUser.role !== "Admin")
+  )
+    return <Navigate to="/workspace/overview" replace />;
 
   return (
     <div className="app-shell">
@@ -231,32 +533,34 @@ function App() {
         </div>
         <div className="workspace-label">WORKSPACE</div>
         <div className="workspace-select">
-          <span className="workspace-avatar">N</span>
+          <span className="workspace-avatar">{initials(userName)}</span>
           <span>
-            <strong>Northstar Trading</strong>
-            <small>Enterprise plan</small>
+            <strong>{userName}</strong>
+            <small>{authUser.role} account</small>
           </span>
           <span className="chevron">⌄</span>
         </div>
         <div className="nav-label">OPERATIONS</div>
         <nav aria-label="Workspace sections">
-          {nav.map((n) => (
-            <button
-              key={n.id}
-              className={`nav-item ${page === n.id ? "active" : ""}`}
-              type="button"
-              title={n.label}
-              aria-label={n.label}
-              aria-current={page === n.id ? "page" : undefined}
-              onClick={() => setPage(n.id)}
-            >
-              <span className="nav-icon">{n.icon}</span>
-              {n.label}
-              {n.id === "invoices" && flagged.length > 0 && (
-                <span className="nav-count">{flagged.length}</span>
-              )}
-            </button>
-          ))}
+          {nav
+            .filter((n) => n.id !== "admin" || authUser.role === "Admin")
+            .map((n) => (
+              <button
+                key={n.id}
+                className={`nav-item ${page === n.id ? "active" : ""}`}
+                type="button"
+                title={n.label}
+                aria-label={n.label}
+                aria-current={page === n.id ? "page" : undefined}
+                onClick={() => goToPage(n.id)}
+              >
+                <span className="nav-icon">{n.icon}</span>
+                {n.label}
+                {n.id === "invoices" && flagged.length > 0 && (
+                  <span className="nav-count">{flagged.length}</span>
+                )}
+              </button>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="help-card">
@@ -272,13 +576,18 @@ function App() {
               Contact support <span>↗</span>
             </button>
           </div>
-          <button className="profile" type="button">
-            <div className="profile-avatar">AM</div>
+          <button
+            className="profile"
+            type="button"
+            onClick={logout}
+            title="Log out"
+          >
+            <div className="profile-avatar">{initials(userName)}</div>
             <span>
-              <strong>Alex Morgan</strong>
-              <small>Logistics manager</small>
+              <strong>{userName}</strong>
+              <small>{authUser.role} · Log out</small>
             </span>
-            <span className="more">···</span>
+            <span className="more">↪</span>
           </button>
         </div>
       </aside>
@@ -300,16 +609,25 @@ function App() {
             >
               ♧<i className="notification-dot" />
             </button>
-            <div className="top-avatar">AM</div>
+            <div className="top-avatar">{initials(userName)}</div>
           </div>
         </header>
 
         <div className="content">
           {error && (
             <div className="error-banner">
-              Couldn’t reach the API: {error}. Start the server with{" "}
+              Workspace data unavailable: {error}. Start the server with{" "}
               <code>cd Server && npm run dev</code>.
             </div>
+          )}
+
+          {page === "admin" && (
+            <AdminPage
+              rates={rates}
+              shipments={shipments}
+              refresh={refresh}
+              onToast={setToast}
+            />
           )}
 
           {page === "overview" && (
@@ -321,7 +639,7 @@ function App() {
                     OVERVIEW
                   </div>
                   <h1>
-                    {greeting()}, Alex <span className="wave">✳</span>
+                    {greetingText}, {firstName} <span className="wave">✳</span>
                   </h1>
                   <p className="subtitle">
                     Here’s what’s happening across your ocean freight
@@ -331,7 +649,7 @@ function App() {
                 <button
                   type="button"
                   className="button button-primary"
-                  onClick={() => setPage("rates")}
+                  onClick={() => goToPage("rates")}
                 >
                   <span>＋</span> Find a rate
                 </button>
@@ -384,7 +702,7 @@ function App() {
                     <button
                       type="button"
                       className="text-button"
-                      onClick={() => setPage("shipments")}
+                      onClick={() => goToPage("shipments")}
                     >
                       View all <span>→</span>
                     </button>
@@ -433,7 +751,7 @@ function App() {
                       type="button"
                       className="round-link"
                       aria-label="Open rate search"
-                      onClick={() => setPage("rates")}
+                      onClick={() => goToPage("rates")}
                     >
                       ↗
                     </button>
@@ -486,7 +804,7 @@ function App() {
                   <button
                     type="button"
                     className="full-link"
-                    onClick={() => setPage("rates")}
+                    onClick={() => goToPage("rates")}
                   >
                     Compare all rates <span>→</span>
                   </button>
@@ -502,7 +820,7 @@ function App() {
                   <button
                     type="button"
                     className="text-button"
-                    onClick={() => setPage("inbox")}
+                    onClick={() => goToPage("inbox")}
                   >
                     Email updates <span>→</span>
                   </button>
@@ -520,7 +838,7 @@ function App() {
                     type="button"
                     className="button button-soft"
                     onClick={() => {
-                      setPage("inbox");
+                      goToPage("inbox");
                       loadSample();
                     }}
                   >
@@ -545,6 +863,19 @@ function App() {
                     network.
                   </p>
                 </div>
+                {authUser.role === "Admin" && (
+                  <label className="button button-outline file-action">
+                    ↑ <span>Import CSV</span>
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={(e) => {
+                        importRates(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
               </div>
 
               <section className="panel search-panel">
@@ -645,7 +976,10 @@ function App() {
                     </thead>
                     <tbody>
                       {filteredRates.map((r, i) => (
-                        <tr key={r.id}>
+                        <tr
+                          key={r.id}
+                          className={i === 0 ? "cheapest-row" : ""}
+                        >
                           <td data-label="CARRIER">
                             <span className="carrier-cell">
                               <span
@@ -657,7 +991,12 @@ function App() {
                               >
                                 {initials(r.carrier)}
                               </span>
-                              <strong>{r.carrier}</strong>
+                              <strong>
+                                {r.carrier}
+                                {i === 0 && (
+                                  <span className="cheapest-tag">CHEAPEST</span>
+                                )}
+                              </strong>
                             </span>
                           </td>
                           <td data-label="ROUTE">
@@ -715,11 +1054,47 @@ function App() {
                 <button
                   type="button"
                   className="button button-primary"
-                  onClick={() => setToast("Shipment list is ready to export.")}
+                  onClick={() => setShipmentForm((v) => !v)}
                 >
-                  ↓ <span>Export shipments</span>
+                  + <span>Add shipment</span>
                 </button>
               </div>
+
+              {shipmentForm && (
+                <form className="panel data-form" onSubmit={createShipment}>
+                  <input
+                    name="shipment_id"
+                    placeholder="Shipment ID"
+                    required
+                  />
+                  <input name="carrier" placeholder="Carrier" required />
+                  <input
+                    name="origin_port"
+                    placeholder="Origin port"
+                    required
+                  />
+                  <input
+                    name="destination_port"
+                    placeholder="Destination port"
+                    required
+                  />
+                  <select name="container_type" required>
+                    <option value="20ft">20ft</option>
+                    <option value="40ft">40ft</option>
+                  </select>
+                  <label>
+                    Departure
+                    <input name="departure_date" type="date" required />
+                  </label>
+                  <label>
+                    Expected arrival
+                    <input name="expected_arrival" type="date" required />
+                  </label>
+                  <button className="button button-primary" type="submit">
+                    Save shipment
+                  </button>
+                </form>
+              )}
 
               <div className="toolbar">
                 <label className="input-search">
@@ -842,7 +1217,13 @@ function App() {
                   <div>
                     <span>Potential overcharges</span>
                     <strong>
-                      {money(flagged.reduce((a, b) => a + b.variance, 0))}
+                      {moneyInCurrency(
+                        flagged.reduce((a, b) => a + b.variance, 0) *
+                          (invoiceCurrency === "INR" && usdToInr
+                            ? usdToInr
+                            : 1),
+                        invoiceCurrency,
+                      )}
                     </strong>
                     <small>Across flagged invoices</small>
                   </div>
@@ -858,6 +1239,92 @@ function App() {
               </div>
 
               <section className="panel table-panel">
+                <div className="invoice-entry">
+                  <strong>Check an invoice</strong>
+                  <label className="invoice-currency-picker">
+                    Display currency
+                    <select
+                      aria-label="Invoice display currency"
+                      value={invoiceCurrency}
+                      onChange={(e) => setInvoiceCurrency(e.target.value)}
+                    >
+                      <option value="USD">USD · US Dollar</option>
+                      <option value="INR" disabled={!usdToInr}>
+                        INR · Indian Rupee
+                      </option>
+                    </select>
+                  </label>
+                  <select
+                    aria-label="Shipment for invoice"
+                    value={invoiceForm.shipment_id}
+                    onChange={(e) =>
+                      setInvoiceForm({
+                        ...invoiceForm,
+                        shipment_id: e.target.value,
+                      })
+                    }
+                  >
+                    <option value="">Select shipment</option>
+                    {shipments.map((s) => (
+                      <option key={s.shipment_id} value={s.shipment_id}>
+                        {s.shipment_id} · {s.carrier}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    aria-label={`Invoice amount in ${invoiceCurrency}`}
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    placeholder={`Invoice amount (${invoiceCurrency})`}
+                    value={invoiceForm.amount}
+                    onChange={(e) =>
+                      setInvoiceForm({ ...invoiceForm, amount: e.target.value })
+                    }
+                  />
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    disabled={
+                      !invoiceForm.shipment_id ||
+                      !invoiceForm.amount ||
+                      (invoiceCurrency === "INR" && !usdToInr)
+                    }
+                    onClick={() =>
+                      saveInvoice(
+                        invoiceForm.shipment_id,
+                        invoiceCurrency === "INR"
+                          ? Number(invoiceForm.amount) / usdToInr
+                          : invoiceForm.amount,
+                      )
+                    }
+                  >
+                    Check invoice
+                  </button>
+                  <label className="button button-outline file-action">
+                    ↑ <span>Upload CSV</span>
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={(e) => {
+                        importInvoices(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+                <div className="invoice-rate-note" role="status">
+                  {usdToInr
+                    ? `Latest reference rate: USD 1 = ${moneyInCurrency(usdToInr, "INR")}${exchangeRateDate ? ` · ${exchangeRateDate}` : ""}`
+                    : exchangeRateError ||
+                      "Loading latest USD/INR reference rate…"}
+                  {invoiceCurrency === "INR" && (
+                    <span>
+                      {" "}
+                      · CSV invoice amounts are still entered in USD.
+                    </span>
+                  )}
+                </div>
                 <div className="panel-header">
                   <div>
                     <h2>
@@ -898,10 +1365,24 @@ function App() {
                             </small>
                           </td>
                           <td data-label="CONTRACTED">
-                            {money(i.contract_rate)}
+                            {moneyInCurrency(
+                              i.contract_rate *
+                                (invoiceCurrency === "INR" && usdToInr
+                                  ? usdToInr
+                                  : 1),
+                              invoiceCurrency,
+                            )}
                           </td>
                           <td data-label="INVOICED">
-                            <strong>{money(i.invoice_amount_usd)}</strong>
+                            <strong>
+                              {moneyInCurrency(
+                                i.invoice_amount_usd *
+                                  (invoiceCurrency === "INR" && usdToInr
+                                    ? usdToInr
+                                    : 1),
+                                invoiceCurrency,
+                              )}
+                            </strong>
                           </td>
                           <td
                             data-label="VARIANCE"
@@ -910,11 +1391,17 @@ function App() {
                             }
                           >
                             {i.variance > 0 ? "+" : ""}
-                            {money(i.variance)}
+                            {moneyInCurrency(
+                              i.variance *
+                                (invoiceCurrency === "INR" && usdToInr
+                                  ? usdToInr
+                                  : 1),
+                              invoiceCurrency,
+                            )}
                           </td>
                           <td data-label="RESULT">
                             <Badge>
-                              {i.flagged ? "Over contract" : "Within contract"}
+                              {i.flagged ? "Overcharged" : "Correct"}
                             </Badge>
                           </td>
                         </tr>
@@ -943,7 +1430,8 @@ function App() {
                   </p>
                 </div>
                 <span className="connected-pill">
-                  <i /> Parser ready
+                  <i />{" "}
+                  {mailConfigured ? "SMTP configured" : "SMTP not configured"}
                 </span>
               </div>
 
@@ -964,6 +1452,17 @@ function App() {
                     >
                       Load sample inbox <span>↗</span>
                     </button>
+                    <label className="text-button email-file-action">
+                      Upload .txt{" "}
+                      <input
+                        type="file"
+                        accept=".txt,text/plain"
+                        onChange={(e) => {
+                          loadEmailFile(e.target.files?.[0]);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
                   </div>
                   <textarea
                     value={emailText}
@@ -1024,6 +1523,56 @@ function App() {
                 </aside>
               </div>
 
+              <section className="panel email-sender" id="send-update-email">
+                <div className="panel-header">
+                  <div>
+                    <h2>Send an email</h2>
+                    <p>
+                      Send through the SMTP account configured on the server.
+                    </p>
+                  </div>
+                </div>
+                <form className="send-mail-form" onSubmit={sendMail}>
+                  <input
+                    type="email"
+                    required
+                    placeholder="Recipient email"
+                    aria-label="Recipient email"
+                    value={mailDraft.to}
+                    onChange={(e) =>
+                      setMailDraft({ ...mailDraft, to: e.target.value })
+                    }
+                  />
+                  <input
+                    required
+                    maxLength="180"
+                    placeholder="Subject"
+                    aria-label="Email subject"
+                    value={mailDraft.subject}
+                    onChange={(e) =>
+                      setMailDraft({ ...mailDraft, subject: e.target.value })
+                    }
+                  />
+                  <textarea
+                    required
+                    rows="4"
+                    placeholder="Write your message…"
+                    aria-label="Email message"
+                    value={mailDraft.text}
+                    onChange={(e) =>
+                      setMailDraft({ ...mailDraft, text: e.target.value })
+                    }
+                  />
+                  <button
+                    className="button button-primary"
+                    type="submit"
+                    disabled={sendingMail}
+                  >
+                    {sendingMail ? "Sending…" : "Send email"}
+                  </button>
+                </form>
+              </section>
+
               {parsed && (
                 <section className="panel parse-results">
                   <div className="panel-header">
@@ -1034,13 +1583,27 @@ function App() {
                         skipped
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className="text-button"
-                      onClick={() => setParsed(null)}
-                    >
-                      Clear
-                    </button>
+                    <div className="result-actions">
+                      <button
+                        type="button"
+                        className="button button-outline"
+                        disabled={
+                          !parsed.results.some(
+                            (item) => item.status === "Updated",
+                          )
+                        }
+                        onClick={prepareUpdateEmail}
+                      >
+                        Prepare update email
+                      </button>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => setParsed(null)}
+                      >
+                        Clear
+                      </button>
+                    </div>
                   </div>
                   <div className="result-list">
                     {parsed.results.map((r, i) => (

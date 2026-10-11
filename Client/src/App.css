@@ -550,6 +550,42 @@ body:has(.app-shell) {
 .app-shell .button.button-outline:hover {
   border-color: var(--ink);
 }
+.app-shell .file-action { position: relative; overflow: hidden; cursor: pointer; }
+.app-shell .file-action input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.app-shell .email-file-action { position: relative; overflow: hidden; cursor: pointer; }
+.app-shell .email-file-action input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.app-shell .send-mail-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.app-shell .send-mail-form input,
+.app-shell .send-mail-form textarea { width: 100%; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font: inherit; }
+.app-shell .send-mail-form textarea { grid-column: 1 / -1; resize: vertical; }
+.app-shell .send-mail-form button { justify-self: start; }
+.app-shell .data-form,
+.app-shell .invoice-entry { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.app-shell .data-form { margin-top: -8px; }
+.app-shell .data-form input,
+.app-shell .data-form select,
+.app-shell .invoice-entry input,
+.app-shell .invoice-entry select {
+  min-width: 150px; min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font: inherit;
+}
+.app-shell .data-form label { display: grid; gap: 4px; color: var(--muted); font-size: .78rem; }
+.app-shell .invoice-entry { padding: 16px clamp(16px, 2vw, 24px); border-bottom: 1px solid var(--line); }
+.app-shell .invoice-entry > strong { margin-right: auto; }
+.app-shell .invoice-currency-picker {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.app-shell .invoice-rate-note {
+  padding: 0 20px 14px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.app-shell .cheapest-row { background: #f1faf7; }
+.app-shell .cheapest-tag { display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: var(--green-bg); color: var(--green); font: 700 .62rem "DM Sans", sans-serif; vertical-align: middle; }
 .app-shell .text-button {
   display: inline-flex;
   align-items: center;
@@ -900,12 +936,14 @@ body:has(.app-shell) {
 }
 .app-shell .badge-delivered,
 .app-shell .badge-updated,
-.app-shell .badge-within-contract {
+.app-shell .badge-within-contract,
+.app-shell .badge-correct {
   background: var(--green-bg);
   color: var(--green);
 }
 .app-shell .badge-delayed,
-.app-shell .badge-over-contract {
+.app-shell .badge-over-contract,
+.app-shell .badge-overcharged {
   background: var(--red-bg);
   color: var(--red);
 }
@@ -1059,6 +1097,57 @@ body:has(.app-shell) {
 .app-shell .table-sub {
   display: block;
   margin-top: 2px;
+}
+.app-shell .admin-data-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+.app-shell .admin-panel {
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.app-shell .admin-upload { cursor: pointer; }
+.app-shell .admin-table { margin-top: 20px; }
+.app-shell .admin-status-select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+.app-shell .admin-data-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.app-shell .admin-data-form input,
+.app-shell .admin-data-form select,
+.app-shell .table-wrap td select {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+.app-shell .admin-data-form .button {
+  min-height: 42px;
+  justify-content: center;
+}
+@media (max-width: 900px) {
+  .app-shell .admin-data-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .app-shell .admin-data-form { grid-template-columns: 1fr; }
 }
 .app-shell .carrier-cell {
   display: inline-flex;
